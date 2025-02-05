@@ -1,3 +1,5 @@
+use log::info;
+use simple_logger::SimpleLogger;
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 use tokio::net::UdpSocket;
@@ -60,6 +62,7 @@ async fn run_dns_server(socket: UdpSocket, mut server: DnsServer) {
                 server.cleanup_expired_records();
             }
             result = socket.recv_from(&mut buffer) => {
+                info!("Received data from client");
                 let (size, address) = result.expect("Failed to receive data");
                 let request = String::from_utf8_lossy(&buffer[..size]).to_string();
                 let response = handle_request(&request, &mut server);
@@ -71,6 +74,7 @@ async fn run_dns_server(socket: UdpSocket, mut server: DnsServer) {
 
 fn handle_request(request: &str, server: &mut DnsServer) -> String {
     let parts: Vec<&str> = request.split_whitespace().collect();
+    info!("Received request: {}", request);
     match parts.as_slice() {
         ["REPORT", domain, address] => {
             server.update_record(domain.to_string(), address.to_string());
@@ -89,10 +93,21 @@ fn handle_request(request: &str, server: &mut DnsServer) -> String {
 
 #[tokio::main]
 async fn main() {
-    let socket = UdpSocket::bind("127.0.0.1:53").await.unwrap();
+    SimpleLogger::new()
+        .with_level(log::LevelFilter::Info)
+        .init()
+        .unwrap();
+
+    let args = std::env::args().collect::<Vec<_>>();
+    if args.len() != 2 {
+        println!("Usage: {} <port>", args[0]);
+        return;
+    }
+    let port = args[1].parse().unwrap();
+    let socket = UdpSocket::bind(("0.0.0.0", port)).await.unwrap();
     let server = DnsServer::new(Duration::from_secs(30));
 
-    println!("DNS Server running on 127.0.0.1:53");
+    println!("DNS Server running on 0.0.0.0:{}", port);
     run_dns_server(socket, server).await;
 }
 
@@ -140,7 +155,7 @@ mod tests {
 
     #[test]
     fn test_refresh_record() {
-        let mut server = DnsServer::new(Duration::from_secs(1));
+        let mut server = DnsServer::new(Duration::from_secs(2));
 
         // 更新记录
         server.update_record("example.com".to_string(), "192.168.1.1".to_string());
