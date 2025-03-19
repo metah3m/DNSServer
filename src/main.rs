@@ -1,9 +1,8 @@
-use log::info;
-use simple_logger::SimpleLogger;
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 use tokio::net::UdpSocket;
 use tokio::time::interval;
+use tracing::info;
 
 #[derive(Debug)]
 struct DnsRecord {
@@ -62,8 +61,8 @@ async fn run_dns_server(socket: UdpSocket, mut server: DnsServer) {
                 server.cleanup_expired_records();
             }
             result = socket.recv_from(&mut buffer) => {
-                info!("Received data from client");
                 let (size, address) = result.expect("Failed to receive data");
+                info!("Received request from {:?}", address);
                 let request = String::from_utf8_lossy(&buffer[..size]).to_string();
                 let response = handle_request(&request, &mut server);
                 socket.send_to(response.as_bytes(), &address).await.expect("Failed to send data");
@@ -93,10 +92,19 @@ fn handle_request(request: &str, server: &mut DnsServer) -> String {
 
 #[tokio::main]
 async fn main() {
-    SimpleLogger::new()
-        .with_level(log::LevelFilter::Info)
-        .init()
-        .unwrap();
+    tracing_subscriber::fmt()
+        .with_max_level(tracing::level_filters::LevelFilter::TRACE)
+        .with_max_level(tracing::level_filters::LevelFilter::TRACE)
+        .with_writer(
+            std::fs::OpenOptions::new()
+                .create(true)
+                .write(true)
+                .truncate(true)
+                .open("./dns.log")
+                .unwrap(),
+        )
+        .with_ansi(false)
+        .init();
 
     let args = std::env::args().collect::<Vec<_>>();
     if args.len() != 2 {
@@ -107,7 +115,7 @@ async fn main() {
     let socket = UdpSocket::bind(("0.0.0.0", port)).await.unwrap();
     let server = DnsServer::new(Duration::from_secs(30));
 
-    println!("DNS Server running on 0.0.0.0:{}", port);
+    info!("DNS Server running on 0.0.0.0:{}", port);
     run_dns_server(socket, server).await;
 }
 
